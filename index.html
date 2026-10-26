@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jukeduel</title>
+<style>
+  :root { color-scheme: dark; --bg: #121212; --card: #1f1f1f; --muted: #a7a7a7; --accent: #1ed760; }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0 auto; max-width: 640px; padding: 16px; background: var(--bg); color: #fff; font: 16px/1.4 system-ui, sans-serif; }
+  h1 { font-size: 1.5rem; margin: 8px 0 16px; }
+  h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 28px 0 10px; }
+  a { color: var(--accent); }
+  img { background: #333; border-radius: 6px; object-fit: cover; }
+  small { color: var(--muted); }
+  .song { display: flex; gap: 12px; align-items: center; padding: 8px; margin-bottom: 8px; background: var(--card); border-radius: 10px; }
+  .song img { width: 56px; height: 56px; }
+  .song div { flex: 1; min-width: 0; }
+  .song b, .song small, .card b, .card small { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .duel { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .card { display: flex; flex-direction: column; min-width: 0; padding: 10px; background: var(--card); border: 2px solid transparent; border-radius: 12px; }
+  .card img { width: 100%; aspect-ratio: 1; margin-bottom: 8px; }
+  .card button { margin-top: 10px; }
+  .mine { border-color: var(--accent); }
+  button { padding: 10px 16px; border: 0; border-radius: 999px; background: var(--accent); color: #000; font: inherit; font-weight: 700; cursor: pointer; }
+  button:disabled { background: #333; color: var(--muted); cursor: default; }
+  .alt { width: 100%; margin-top: 12px; background: transparent; color: #fff; border: 2px solid #333; }
+  .link { padding: 6px 8px; background: none; color: var(--muted); font-weight: 400; text-decoration: underline; }
+  form { display: flex; gap: 8px; margin-bottom: 12px; }
+  input { flex: 1; min-width: 0; padding: 10px 16px; border: 0; border-radius: 999px; background: #fff; color: #000; font: inherit; }
+  .bar { height: 4px; background: #333; border-radius: 2px; overflow: hidden; }
+  .bar i { display: block; width: 0; height: 100%; background: var(--accent); }
+  .warn { padding: 12px; background: #4a1d1d; border-radius: 10px; }
+  .song b a, .card b a { color: inherit; text-decoration: none; }
+  footer { margin: 40px 0 8px; font-size: .8rem; color: var(--muted); }
+  footer a { display: inline-flex; gap: 6px; align-items: center; color: inherit; }
+  footer svg { width: 18px; height: 18px; fill: var(--accent); }
+</style>
+</head>
+<body>
+<h1>Vote du prochain son</h1>
+<div id="welcome" hidden>
+  <p>Choisis un pseudo pour voter et proposer des sons. Chaque vote reçu par tes sons te fait grimper au classement affiché sur l'écran de la soirée.</p>
+  <form id="name"><input name="pseudo" maxlength="20" placeholder="Ton pseudo" autocomplete="nickname" required><button>C'est parti</button></form>
+</div>
+<div id="app" hidden>
+  <p><small>Tu joues en tant que <b id="myname"></b> · <button type="button" class="link" id="rename">changer</button></small></p>
+  <div id="live"></div>
+  <h2>Proposer un son <span id="quota"></span></h2>
+  <form id="search"><input name="q" type="search" placeholder="Titre, artiste…" required><button>Chercher</button></form>
+  <div id="results"></div>
+  <div id="pool"></div>
+</div>
+<footer>Catalogue et lecture : <a href="https://open.spotify.com" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z"/></svg>Spotify</a>. Jukeduel n'est pas affilié à Spotify.</footer>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
+const mmss = ms => `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}`;
+const set = (sel, h) => { const el = $(sel); if (el._h !== h) el.innerHTML = el._h = h; }; // redessiner sans changement ferait sauter les clics
+const post = url => fetch(url, { method: 'POST' }).then(r => r.json()).catch(() => ({ error: 'Serveur injoignable' }));
+const title = s => `<b><a href="https://open.spotify.com/track/${encodeURIComponent(s.id)}" target="_blank" rel="noopener">${esc(s.name)}</a></b>`; // lien vers Spotify exigé par ses règles
+const song = (s, extra = '') => `<div class="song"><img src="${esc(s.image)}" alt=""><div>${title(s)}<small>${esc(s.artists)}</small></div>${extra}</div>`;
+const withdraw = s => s.mine ? `<button class="link" data-act="withdraw" data-id="${esc(s.id)}">Retirer</button>` : ''; // ses propres sons
+const card = (s, mine) => `<div class="card${s.id === mine ? ' mine' : ''}"><img src="${esc(s.image)}" alt="">${title(s)}<small>${esc(s.artists)}</small>`
+  + `<button data-act="vote" data-id="${esc(s.id)}"${s.id === mine ? ' disabled' : ''}>${s.id === mine ? 'Ton vote' : 'Voter'} · ${s.votes}</button>${withdraw(s)}</div>`;
+const reroll = d => d.reroll == null ? '' : `<button class="alt" data-act="vote" data-id="reroll"${d.mine === 'reroll' ? ' disabled' : ''}>`
+  + `${d.mine === 'reroll' ? 'Ton vote : autres sons' : 'Aucun des deux : autres sons'} · ${d.reroll}</button>`
+  + '<p><small>Si la majorité des votes le demande, deux autres sons sont tirés au sort (une fois par duel).</small></p>';
+
+let st, at, renaming = false;
+async function load() {
+  try { st = await (await fetch('/api/state')).json(); at = Date.now(); } catch { return; }
+  const { connected, paused, name, now, next, duel, pool, closesIn } = st;
+  $('#welcome').hidden = !!name && !renaming;
+  $('#app').hidden = !name;
+  $('#myname').textContent = name ?? '';
+  set('#live',
+    (connected ? '' : `<p class="warn">Spotify n'est pas connecté : l'hôte doit passer par <a href="/login">/login</a>.</p>`)
+    + (paused ? '<p class="warn">Le vote est en pause : Spotify joue normalement.</p>'
+      : '<h2>En cours</h2>' + (now ? song({ ...now, artists: now.artists + (now.author ? ` · proposé par ${now.author}` : '') }) + '<div class="bar"><i id="bar"></i></div>'
+        : '<p><small>Rien en lecture : lance un son sur Spotify.</small></p>')
+        + (next ? `<p><small>À suivre :</small> ${esc(next.name)} <small>· ${esc(next.artists)}</small></p>` : ''))
+    + `<h2>Vote pour le prochain${closesIn != null ? ' · fin dans <span id="close"></span>' : ''}</h2>`
+    + (duel ? `<div class="duel">${duel.songs.map(s => card(s, duel.mine)).join('')}${duel.songs.length < 2 ? "<p><small>En attente d'un adversaire…</small></p>" : ''}</div>` + reroll(duel)
+            : '<p><small>Propose un son pour lancer le vote !</small></p>'));
+  set('#pool', pool.length ? `<h2>En attente (${pool.length})</h2>` + pool.map(s => song(s, withdraw(s))).join('') : '');
+  const mine = [...duel?.songs ?? [], ...pool].filter(s => s.mine).length;
+  $('#quota').textContent = mine ? `· ${mine}/10` : '';
+  progress();
+}
+
+function progress() {
+  if (!st?.now) return;
+  const e = st.now.playing ? Date.now() - at : 0;
+  $('#bar').style.width = Math.min(100, (st.now.progress + e) / st.now.duration * 100) + '%';
+  if (st.closesIn != null) $('#close').textContent = mmss(Math.max(0, st.closesIn - e));
+}
+
+$('#name').onsubmit = async e => {
+  e.preventDefault();
+  const { error } = await post('/api/name?name=' + encodeURIComponent(e.target.pseudo.value));
+  if (error) return alert(error);
+  renaming = false;
+  load();
+};
+$('#rename').onclick = () => {
+  renaming = true;
+  $('#name').pseudo.value = st.name;
+  $('#welcome').hidden = false;
+  $('#name').pseudo.focus();
+};
+
+$('#search').onsubmit = async e => {
+  e.preventDefault();
+  const data = await fetch('/api/search?q=' + encodeURIComponent(e.target.q.value)).then(r => r.json()).catch(() => ({ error: 'Serveur injoignable' }));
+  $('#results').innerHTML = data.error ? `<p class="warn">${esc(data.error)}</p>`
+    : data.map(s => song(s, s.taken ? '<small>Déjà proposé</small>' : `<button data-act="propose" data-id="${esc(s.id)}">Proposer</button>`)).join('') || '<p><small>Aucun résultat</small></p>';
+};
+
+document.onclick = async e => {
+  const b = e.target.closest('[data-act]');
+  if (!b) return;
+  b.disabled = true;
+  const { error } = await post(`/api/${b.dataset.act}?id=${encodeURIComponent(b.dataset.id)}`);
+  if (b.dataset.act === 'propose') b.textContent = error || 'Proposé';
+  else if (error) { b.disabled = false; alert(error); }
+  load();
+};
+
+load();
+setInterval(load, 3000);
+setInterval(progress, 1000);
+</script>
+</body>
+</html>

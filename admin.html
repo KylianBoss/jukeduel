@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jukeduel · admin</title>
+<style>
+  :root { color-scheme: dark; --bg: #121212; --card: #1f1f1f; --muted: #a7a7a7; --accent: #1ed760; --danger: #e5484d; }
+  * { box-sizing: border-box; }
+  body { margin: 0 auto; max-width: 640px; padding: 16px; background: var(--bg); color: #fff; font: 16px/1.4 system-ui, sans-serif; }
+  h1 { font-size: 1.5rem; margin: 8px 0 16px; }
+  h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 28px 0 10px; }
+  a { color: var(--accent); }
+  img { background: #333; border-radius: 6px; object-fit: cover; }
+  small { color: var(--muted); }
+  .song { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; padding: 8px; margin-bottom: 8px; background: var(--card); border-radius: 10px; }
+  .song img { width: 48px; height: 48px; }
+  .song div { flex: 1 1 150px; min-width: 0; } /* les boutons passent dessous plutôt que de couper le titre */
+  .song b, .song small { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .song .acts { display: flex; flex: none; gap: 6px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; }
+  button { padding: 8px 14px; border: 0; border-radius: 999px; background: var(--accent); color: #000; font: inherit; font-size: .9rem; font-weight: 700; cursor: pointer; }
+  button:disabled { background: #333; color: var(--muted); cursor: default; }
+  .ghost { background: transparent; color: #fff; border: 2px solid #333; }
+  .danger { background: var(--danger); color: #fff; }
+  .warn { padding: 12px; background: #4a1d1d; border-radius: 10px; }
+</style>
+</head>
+<body>
+<h1>Administration</h1>
+<div id="status"></div>
+<div id="live"></div>
+<h2>Outils</h2>
+<div class="row" id="tools"></div>
+<p><small>Pages : <a href="/">invités</a> · <a href="/ecran">écran de la sono</a> · <a href="/login">reconnecter Spotify</a></small></p>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
+const set = (sel, h) => { const el = $(sel); if (el._h !== h) el.innerHTML = el._h = h; };
+const btn = (act, label, cls = '', q = {}, ask = '') => `<button class="${cls}" data-act="${act}" data-q="${esc(new URLSearchParams(q))}" data-ask="${esc(ask)}">${label}</button>`;
+const BLOCKED = 'Ses sons en attente seront retirés et cette personne ne pourra plus proposer ni voter.';
+const block = s => btn('block', 'Bloquer l\'auteur', 'danger', { id: s.id }, `Bloquer ${s.author ?? 'la personne'} qui a proposé « ${s.name} » ? ${BLOCKED}`);
+const row = (s, note, acts) => `<div class="song"><img src="${esc(s.image)}" alt=""><div><b>${esc(s.name)}</b>`
+  + `<small>${esc(s.artists)}${s.author ? ' · par ' + esc(s.author) : ''}${note}</small></div><div class="acts">${acts}</div></div>`;
+
+async function load() {
+  let st;
+  try { st = await (await fetch('/admin/state')).json(); } catch { return; }
+  const { connected, paused, banned, now, next, duel, pool, ranking } = st;
+  set('#status',
+    (connected ? '' : '<p class="warn">Spotify n\'est pas connecté : <a href="/login">connecter Spotify</a>.</p>')
+    + `<div class="row">${btn('skip', 'Passer le son en cours')}`
+    + (paused ? btn('resume', 'Relancer le vote', 'ghost') + '</div><p><small>Vote en pause : Spotify joue normalement.</small></p>'
+              : btn('pause', 'Couper le vote', 'ghost') + '</div>'));
+  set('#live',
+    (now ? '<h2>En cours</h2>' + row(now, '', block(now)) : '')
+    + (next ? '<h2>À suivre (déjà dans la file Spotify)</h2>' + row(next, '', block(next)) : '')
+    + `<h2>Propositions (${(duel?.songs.length ?? 0) + pool.length})</h2>`
+    + [...(duel?.songs ?? []).map(s => [s, ` · en duel, ${s.votes} vote${s.votes > 1 ? 's' : ''}`]), ...pool.map(s => [s, ''])]
+        .map(([s, note]) => row(s, note, btn('remove', 'Retirer', 'ghost', { id: s.id }) + block(s))).join('')
+    + (duel || pool.length ? '<p><small>Un son retiré ne pourra plus être proposé.</small></p>' : '<p><small>Aucune proposition.</small></p>')
+    + (ranking.length ? '<h2>Classement · votes reçus</h2>' + ranking.map((r, i) => `<div class="song"><div><b>${i + 1}. ${esc(r.name)}</b>`
+        + `<small>${r.score} vote${r.score > 1 ? 's' : ''}</small></div><div class="acts">${btn('block', 'Bloquer', 'danger', { name: r.name }, `Bloquer ${r.name} ? ${BLOCKED}`)}</div></div>`).join('') : ''));
+  set('#tools', btn('reset-played', 'Oublier les sons déjà passés', 'ghost', {}, 'Les sons déjà passés pourront de nouveau être proposés. Continuer ?')
+    + btn('reset-ranking', 'Remettre le classement à zéro', 'ghost', {}, 'Le classement et les pseudos seront effacés : chacun devra rechoisir son pseudo. Continuer ?')
+    + (banned ? btn('unblock', `Tout débloquer (${banned})`, 'ghost', {}, 'Débloquer toutes les personnes et tous les sons bloqués ?') : ''));
+}
+
+document.onclick = async e => {
+  const b = e.target.closest('button[data-act]');
+  if (!b || (b.dataset.ask && !confirm(b.dataset.ask))) return;
+  b.disabled = true;
+  const { error } = await fetch(`/admin/${b.dataset.act}?${b.dataset.q}`, { method: 'POST' }).then(r => r.json()).catch(() => ({ error: 'Serveur injoignable' }));
+  if (error) alert(error);
+  b.disabled = false;
+  load();
+};
+
+load();
+setInterval(load, 3000);
+</script>
+</body>
+</html>

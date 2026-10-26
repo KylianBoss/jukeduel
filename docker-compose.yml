@@ -1,0 +1,16 @@
+services:
+  app:
+    build: .
+    env_file: .env
+    ports:
+      - "127.0.0.1:8080:8080" # accessible seulement via le reverse proxy
+    volumes:
+      - data:/app/data
+    # seul le volume de données est modifiable, sans aucun privilège
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    init: true
+    restart: unless-stopped
+volumes:
+  data:

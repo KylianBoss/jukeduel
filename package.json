@@ -1,0 +1,15 @@
+{
+  "name": "jukeduel",
+  "version": "1.0.0",
+  "description": "Jukebox de soirée pour Spotify : les invités proposent des sons et votent en duel pour le prochain morceau.",
+  "license": "MIT",
+  "private": true,
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
